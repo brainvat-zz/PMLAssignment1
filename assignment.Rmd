@@ -1,96 +1,211 @@
 ---
 title: "Practical Machine Learning Assignment"
 author: "Allen Hammock"
-date: "April 18, 2015"
+date: "April 19, 2015"
 output: html_document
 ---
+
+# Introduction
+
+The goal of this study is to predict the manner in which a group of subjects 
+performed various weight lifting exercises based on readings collected from 
+devices equiped with an accelerometer, a gyroscope and a magnetometer.  A 
+predictive model is built in `R` code using observations collected from six male
+participants aged between 20-28 years, with little weight lifting experience.
+
+This report will describe: 
+
+* how we built our model,
+* how we used cross validation,
+* what we think the expected out of sample error is, and 
+* why we made the choices we did.
 
 # Analysis
 
 ## Reproducibility
 
-This is the environment under which model training, testing, and analysis was performed.
+A report on our `R` environment is presented to assist others in reproducing and
+validating the models on other similarly equipped systems.
 
-```{r, message = FALSE, warning = FALSE}
-library(caret)
+```{r setup.env, message = FALSE, warning = FALSE}
+library(lattice)
 library(ggplot2)
-library(e1071)
-library(ROCR)
+library(randomForest)
+library(caret)
+library(mlbench)
+library(parallel)
+library(doMC)
+
+# Set up some variabiles for reproducibility / inspection
+use.multicore <- TRUE
 seed.value <- 8675309
-sessionInfo()
+set.seed(seed.value)
+save.environment <- "assignment.RData" 
+si <- sessionInfo()
+print(si)
+
+# Use multiple cores if possible, this speeds up processing 3-4x
+if (use.multicore) {
+  cores <- detectCores()
+  # Save one core for user functions
+  if (cores > 2) {
+    registerDoMC(cores = ifelse(cores > 3, cores - 2, 2))  
+  }
+}
+
+# For development only, load previously saved model
+# Turn this on only after you've used knitr once on this .Rmd file
+development <- TRUE
+if (development) {
+  load(save.environment)
+}
 ```
 
-## Load the Data
+## Data source citation
 
-Data in this study comes from a study, 
-[Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201).  Original source data can be downloaded from the 
-[Human Activity Recognition web site](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises)
-maintained by the `Groupware@LES` team.  
+The [original source data][source-data] can be downloaded from the maintained by
+the `Groupware@LES` team.  
 
-```{r setup, cache = TRUE}
-# training: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
-training.dat <- read.csv(file = "pml-training.csv") 
+```{r load.data, cache = TRUE}
+# training & testing: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+modeling.dat <- read.csv(file = "pml-training.csv") 
 
-# testing: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
-testing.dat <- read.csv(file = "pml-testing.csv") 
+# validating: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+validating.dat <- read.csv(file = "pml-testing.csv") 
 ```
-## Feature selection
 
-In the original study, a "Best First" strategy based on backtracking was used to select 17 features in the
-data set.  We attempt to reproduce the results of the research which managed to obtain a 98.2% weighted average
-accuracy across all five classes using a Random Forest approach.
+## Feature selection explained
 
-```{r preprocess}
-measures <- c("classe", grep(x = names(training.dat), pattern = "arm|forearm|dumbell|belt", value = TRUE))
-exclusions <- grep(x = measures, pattern = "kurtosis|skewness|max|min|avg|var|stddev|total|amplitude")
+In [the original study][original-study], a "Best First" strategy based on 
+backtracking was used to select 17 features in the data set.  
+
+In our study, instead we rely only on the original features for which we have
+complete cases. We remove extracted features such as the calculated kurtosis, 
+mean, and other statistics derived from the original device measurements.
+
+Then, we use the `findCorrelation()` method from the `caret` package to remove
+features that are redundant 
+[using a method suggested by Jason Brownlee][feature-selection]. By eliminating
+highly correlated features we hope to reduce the processing time and increase 
+the reliability of the model.
+
+In an [earlier experiment][earlier-experiment], we did not test for highly
+correlated features which greatly increased processing time by ten-fold.
+
+```{r split.data}
+# Keep only the direct measurements, not the derived features like kurtosis or mean
+measures <- c("classe", 
+              grep(x = names(modeling.dat), 
+                   pattern = "arm|forearm|dumbell|belt", 
+                   value = TRUE))
+exclusions <- grep(x = measures, 
+                   pattern = "kurtosis|skewness|max|min|avg|var|stddev|total|amplitude")
 features <- measures[-exclusions]
 
-inTrain <- createDataPartition(y = training.dat$classe, p = 0.75, list = FALSE)
-training <- training.dat[inTrain, features]
-testing <- training.dat[-inTrain, features]
-validating <- testing.dat[, features[-1]]
+inTrain <- createDataPartition(y = modeling.dat$classe, p = 0.75, list = FALSE)
+training <- modeling.dat[inTrain, features]
+testing <- modeling.dat[-inTrain, features]
+validating <- validating.dat[, features[-1]]
+
+# Next, remove the highly correlated features
+`%ni%` <- Negate(`%in%`)
+correlationMatrix <- cor(training[,-1])
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.7)
+to.remove <- features[-1][highlyCorrelated]
+
+training <- subset(training, select = names(training) %ni% to.remove)
+testing <- subset(testing, select = names(testing) %ni% to.remove)
+validating <- subset(validating, select = names(validating) %ni% to.remove)
 ```
 
-* `r round(100*sum(complete.cases(training))/nrow(training), 0)`% complete cases in training set
-* `r round(100*sum(complete.cases(testing))/nrow(testing), 0)`% complete cases in testing set
+## Build the models with cross-validation
 
-We'll *center* and *scale* the data using the `preProcess` directive when we build the model.
+First, check to make sure we have complete cases, as random forest does not do
+well with missing values:
 
-## Build the models
+* `r round(100*sum(complete.cases(training))/nrow(training), 0)`% complete cases
+in training set
+* `r round(100*sum(complete.cases(testing))/nrow(testing), 0)`% complete cases
+in testing set
 
-```{r model.rf}
-set.seed(seed.value)
-modFit <- train(classe ~ ., method = "rf", data = training, preProcess = c("center", "scale"))
+Next, we'll __center__ and __scale__ the data using the `preProcess` directive
+as we build the model. To avoid over-fitting as much as possible, we employ a 
+10-fold cross validation procedure using the `trainControl()` method from the
+`caret` package.
+
+```{r build.model}
+# Use 10-fold cross validation
+# This takes a long time!
+if (!exists("modFit")) {
+  modFit <- train(classe ~ ., 
+                  method = "rf", 
+                  data = training, 
+                  preProcess = c("center", "scale"), 
+                  trControl = trainControl(method = "repeatedcv", 
+                                           number = 10, 
+                                           repeats = 3),
+                  importance = TRUE)  
+}
+print(modFit)
+importance <- varImp(modFit, scale = FALSE)
 answers.test <- predict(modFit, testing)
 cm.test <- confusionMatrix(answers.test, testing$classe)
 accuracy.test <- cm.test$overall[c("Accuracy")]
-cm.test
 ```
 
-## Cross-validation
+## Estimated out of sample error
 
-To determine the out-of-sample error, the original research team used a "leave-one-subject-out test" and 
-observed an overall recognition performance of 78.2%.
+The overall accuracy in our model is __`r round(100*accuracy.test, 2)`%__.  
 
-# Summary
+Looking at the overall importance of each variable in our classification model, 
+we can see that the `pitch_belt` measurement plays a signficant role in each 
+outcome, especially in Class A where each subject performs the Unilateral 
+Dumbbell Biceps Curl without making any mistakes.  Measurements from the
+magnetometer play a greater role when subjects throw their hips too much to
+the front (Class E).
 
-```{r summary}
-answers <- predict(modFit, validating)
-answers
+```{r out.of.sample.error}
+plot(importance)
+print(cm.test)
 ```
 
+# Validation and summary
 
-```{r, echo=FALSE}
-pml_write_files = function(x){
+With high confidence that our model is properly trained and over-fitting is 
+under control, we run the model against the validation data for submission to 
+Coursera.
+
+```{r output.answers}
+# From coursera submission instructions
+# https://class.coursera.org/predmachlearn-013/assignment/view?assignment_id=5
+pml_write_files = function(x) {
   n = length(x)
   for(i in 1:n){
     filename = paste0("problem_id_",i,".txt")
     write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
   }
 }
+
+answers <- predict(modFit, validating)
+print(answers)
 pml_write_files(answers)
 ```
 
-```{r, echo=FALSE}
-save.image("assignment.RData")
+## Environment inspection
+
+If you use `knitr` to build the models yourself, you can inspect the models
+directly by loading the saved data into your own R environment.  Use the
+following code to open the saved environment:
 ```
+load("`r save.environment`")
+```
+```{r save.environment , echo=FALSE}
+if (!development) {
+  save.image(save.environment)
+}
+```
+
+[source-data]: http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises "Human Activity Recognition web site"
+[feature-selection]: http://machinelearningmastery.com/feature-selection-with-the-caret-r-package "Feature Selection with the Caret R Package"
+[original-study]: http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201 "Qualitative Activity Recognition of Weight Lifting Exercises"
+[earlier-experiment]: https://github.com/brainvat/PMLAssignment1/commit/29b91b8926d99affbd38532ec26ec71d15bf5653?short_path=9fcaea6#diff-9fcaea68a89fc07bd1251a4b905d600b "Github @brainvat early Random Forest model"
