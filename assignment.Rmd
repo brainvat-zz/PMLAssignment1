@@ -55,7 +55,7 @@ if (use.multicore) {
 
 # For development only, load previously saved model
 # Turn this on only after you've used knitr once on this .Rmd file
-development <- TRUE
+development <- FALSE
 if (development) {
   load(save.environment)
 }
