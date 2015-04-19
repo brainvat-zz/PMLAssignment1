@@ -1,5 +1,5 @@
 .DS_Store
 .Rproj.user
-.RData
 .Rhistory
 assignment_cache/*
+*.RData
