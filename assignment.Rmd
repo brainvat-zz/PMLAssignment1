@@ -1,35 +1,81 @@
 ---
 title: "Practical Machine Learning Assignment"
 author: "Allen Hammock"
-date: "April 11, 2015"
+date: "April 18, 2015"
 output: html_document
 ---
 
-# Introduction
-
-## Required Files
-
-This project is available on Github at https://github.com/brainvat/PMLAssignment1
-
-* .Rmd file
-* .HTML file
-
-## Evaluation Criteria
-
-* How the algorithm was built
-* Out of sample error estimate
-* Cross-validation
-
 # Analysis
 
-```{r}
+## Reproducibility
+
+This is the environment under which model training, testing, and analysis was performed.
+
+```{r, message = FALSE, warning = FALSE}
+library(caret)
+library(ggplot2)
+library(e1071)
+library(ROCR)
+seed.value <- 8675309
 sessionInfo()
 ```
 
+## Load the Data
+
+Data in this study comes from a study, 
+[Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201).  Original source data can be downloaded from the 
+[Human Activity Recognition web site](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises)
+maintained by the `Groupware@LES` team.  
+
+```{r setup, cache = TRUE}
+# training: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+training.dat <- read.csv(file = "pml-training.csv") 
+
+# testing: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+testing.dat <- read.csv(file = "pml-testing.csv") 
+```
+## Feature selection
+
+In the original study, a "Best First" strategy based on backtracking was used to select 17 features in the
+data set.  We attempt to reproduce the results of the research which managed to obtain a 98.2% weighted average
+accuracy across all five classes using a Random Forest approach.
+
+```{r preprocess}
+measures <- c("classe", grep(x = names(training.dat), pattern = "arm|forearm|dumbell|belt", value = TRUE))
+exclusions <- grep(x = measures, pattern = "kurtosis|skewness|max|min|avg|var|stddev|total|amplitude")
+features <- measures[-exclusions]
+
+inTrain <- createDataPartition(y = training.dat$classe, p = 0.75, list = FALSE)
+training <- training.dat[inTrain, features]
+testing <- training.dat[-inTrain, features]
+validating <- testing.dat[, features[-1]]
+```
+
+* `r round(100*sum(complete.cases(training))/nrow(training), 0)`% complete cases in training set
+* `r round(100*sum(complete.cases(testing))/nrow(testing), 0)`% complete cases in testing set
+
+We'll *center* and *scale* the data using the `preProcess` directive when we build the model.
+
+## Build the models
+
+```{r model.rf}
+set.seed(seed.value)
+modFit <- train(classe ~ ., method = "rf", data = training, preProcess = c("center", "scale"))
+answers.test <- predict(modFit, testing)
+cm.test <- confusionMatrix(answers.test, testing$classe)
+accuracy.test <- cm.test$overall[c("Accuracy")]
+cm.test
+```
+
+## Cross-validation
+
+To determine the out-of-sample error, the original research team used a "leave-one-subject-out test" and 
+observed an overall recognition performance of 78.2%.
+
 # Summary
 
-```{r}
-answers = rep("A", 20)
+```{r summary}
+answers <- predict(modFit, validating)
 answers
 ```
 
