@@ -159,7 +159,7 @@ To estimate the out of sample error, we build a confusion matrix, comparing
 our predicted classes versus the actual classes known in the testing data.
 
 The overall accuracy in our model is __`r round(100*accuracy.test, 2)`%__. The
-confusion matrix, below, the trained model is able to achieve greater than 
+confusion matrix, below, shows the trained model is able to achieve greater than 
 99% positive predictive value and over 99% negative predictive value on all
 classes within a 95% confidence interval.
 
