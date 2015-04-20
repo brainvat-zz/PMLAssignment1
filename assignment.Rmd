@@ -31,6 +31,7 @@ validating the models on other similarly equipped systems.
 library(lattice)
 library(ggplot2)
 library(randomForest)
+library(e1071)
 library(caret)
 library(mlbench)
 library(parallel)
@@ -160,8 +161,11 @@ our predicted classes versus the actual classes known in the testing data.
 
 The overall accuracy in our model is __`r round(100*accuracy.test, 2)`%__. The
 confusion matrix, below, shows the trained model is able to achieve greater than 
-99% positive predictive value and over 99% negative predictive value on all
-classes within a 95% confidence interval.
+`r min(round(100*cm.test$byClass[,c("Pos Pred Value")], 0))`% positive predictive 
+value and over `r min(round(100*cm.test$byClass[,c("Neg Pred Value")], 0))`% 
+negative predictive value on all classes within a 95% confidence interval of
+(`r round(100*cm.test$overall[c("AccuracyLower")], 2)`%, 
+`r round(100*cm.test$overall[c("AccuracyUpper")], 2)`%).
 
 Looking at the overall importance of each variable in our classification model, 
 we can see that the `pitch_belt` measurement plays a signficant role in each 
