@@ -209,6 +209,84 @@ following code to open the saved environment:
 ```
 load("`r save.environment`")
 ```
+
+## Some extra fun
+
+It has been said that one of the big downsides to using machine learning
+models is that they are not very interpretable.  The Random Forests
+algorithm effectively produces a large number of decision trees which
+then are used to make predictions.  
+
+To see examples of these decision rules, load the saved environment into
+your session using the code above, then execute the code below.  There are 
+a total of `r modFit$finalModel$ntree` trees in the final model.
+
+```
+print.rule(modFit$finalModel, 1)
+```
+```{r print.trees , echo=FALSE}
+# Adapted from:
+# http://stats.stackexchange.com/questions/41443/how-to-actually-plot-a-sample-tree-from-randomforestgettree
+
+#**************************
+#return the rules of a tree
+#**************************
+getConds<-function(tree){
+  #store all conditions into a list
+  conds<-list()
+  #start by the terminal nodes and find previous conditions
+  id.leafs<-which(tree$status==-1)
+    j<-0
+	  for(i in id.leafs){
+		j<-j+1
+		prevConds<-prevCond(tree,i)
+		conds[[j]]<-prevConds$cond
+		while(prevConds$id>1){
+		  prevConds<-prevCond(tree,prevConds$id)
+		  conds[[j]]<-paste(conds[[j]]," & ",prevConds$cond)
+		  if(prevConds$id==1){
+			conds[[j]]<-paste(conds[[j]]," => ",tree$prediction[i])
+        break()
+      }
+    }
+
+  }
+
+  return(conds)
+}
+
+#**************************
+#find the previous conditions in the tree
+#**************************
+prevCond<-function(tree,i){
+  if(i %in% tree$right_daughter){
+		id<-which(tree$right_daughter==i)
+		cond<-paste(tree$split_var[id],">",tree$split_point[id])
+	  }
+	  if(i %in% tree$left_daughter){
+    id<-which(tree$left_daughter==i)
+		cond<-paste(tree$split_var[id],"<",tree$split_point[id])
+  }
+
+  return(list(cond=cond,id=id))
+}
+
+#remove spaces in a word
+collapse<-function(x){
+  x<-sub(" ","_",x)
+
+  return(x)
+}
+
+print.rule <- function(rf, n) {
+  tree<-getTree(rf, k=n, labelVar=TRUE)
+  colnames(tree)<-sapply(colnames(tree),collapse)
+  rules<-getConds(tree)
+  print(rules)
+}
+
+```
+
 ```{r save.environment , echo=FALSE}
 if (!development) {
   save.image(save.environment)
