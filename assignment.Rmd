@@ -2,7 +2,9 @@
 title: "Practical Machine Learning Assignment"
 author: "Allen Hammock"
 date: "April 19, 2015"
-output: html_document
+output:
+  html_document:
+    self_contained: no
 ---
 
 # Introduction
@@ -29,6 +31,7 @@ validating the models on other similarly equipped systems.
 
 ```{r setup.env, message = FALSE, warning = FALSE}
 library(lattice)
+library(grid)
 library(ggplot2)
 library(randomForest)
 library(e1071)
@@ -59,6 +62,7 @@ if (use.multicore) {
 development <- FALSE
 if (development) {
   load(save.environment)
+  development <- TRUE
 }
 ```
 
@@ -183,7 +187,8 @@ print(cm.test)
 
 With high confidence that our model is properly trained and over-fitting is 
 under control, we run the model against the validation data for submission to 
-Coursera.
+Coursera.  We save our answers in files that can be uploaded per the course
+submission instructions.
 
 ```{r output.answers}
 # From coursera submission instructions
@@ -197,7 +202,6 @@ pml_write_files = function(x) {
 }
 
 answers <- predict(modFit, validating)
-print(answers)
 pml_write_files(answers)
 ```
 
@@ -206,6 +210,7 @@ pml_write_files(answers)
 If you use `knitr` to build the models yourself, you can inspect the models
 directly by loading the saved data into your own R environment.  Use the
 following code to open the saved environment:
+
 ```
 load("`r save.environment`")
 ```
@@ -224,6 +229,7 @@ a total of `r modFit$finalModel$ntree` trees in the final model.
 ```
 print.rule(modFit$finalModel, 1)
 ```
+
 ```{r print.trees , echo=FALSE}
 # Adapted from:
 # http://stats.stackexchange.com/questions/41443/how-to-actually-plot-a-sample-tree-from-randomforestgettree
@@ -249,9 +255,7 @@ getConds<-function(tree){
         break()
       }
     }
-
   }
-
   return(conds)
 }
 
@@ -274,7 +278,6 @@ prevCond<-function(tree,i){
 #remove spaces in a word
 collapse<-function(x){
   x<-sub(" ","_",x)
-
   return(x)
 }
 
@@ -285,6 +288,72 @@ print.rule <- function(rf, n) {
   print(rules)
 }
 
+```
+
+## Validation results
+
+Now, we'll show the results of running `predict()` on our validation set.  To protect
+other Coursera students from violating the Honor Code, we have suppressed the answers
+in the default output.
+
+To see the final answers, set `development <- TRUE` in the code above and run the
+`knitr` command yourself to see the results inline.
+
+```{r show.answers, echo = FALSE}
+if (development) {
+  theme.novpadding <- 
+    list(layout.heights =
+           list(top.padding = 0,
+               main = 0,
+               main.key.padding = 0,
+               key.top = 0,
+               xlab.top = 0,
+               key.axis.padding = 0,
+               axis.top = 0,
+               strip = 0,
+               #panel = 0,
+               axis.panel = 0,
+               between = 0,
+               axis.bottom = 0,
+               xlab = 0,
+               axis.xlab.padding = 0,
+               xlab.key.padding = 0,
+               key.bottom = 0,
+               sub = 0,
+               key.sub.padding = 0,
+               bottom.padding = 0),
+        layout.widths =
+          list(left.padding = 0,
+               key.left = 0,
+               key.ylab.padding = 0,
+               ylab = 0,
+               ylab.axis.padding = 0,
+               axis.left = 0,
+               axis.panel = 0,
+               strip.left = 0,
+               #panel = 0,
+               between = 0,
+               axis.right = 0,
+               axis.key.padding = 0,
+               ylab.right = 0,
+               key.right = 0,
+               right.padding = 0),
+        axis.line =
+          list(col = NA, 
+               lty = 1, 
+               lwd = 1))
+
+  trellis.par.set(theme.novpadding)
+  p1 <- xyplot(runif(1500) ~ 1:250, 
+         xlab = NULL, ylab = NULL, 
+         scales=list(axs = 'i', draw = FALSE), 
+         pch = 10, aspect = 0.25, col = "gray64", layout = c(1,1))
+
+  print(p1)
+  trellis.focus("toplevel", 1, 1)
+  panel.text(0.5, 0.5, paste(answers, collapse = " "), cex = 1.6, font = 2, col = "gray48")
+  trellis.unfocus()  
+}
 ```
 
 ```{r save.environment , echo=FALSE}
